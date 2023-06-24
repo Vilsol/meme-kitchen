@@ -46,7 +46,7 @@ func main() {
 
 	app.Use(cors.New())
 
-	app.Static("./static", "")
+	app.Static("/", "./static")
 
 	app.Get("/img/*.webp", func(c *fiber.Ctx) error {
 		decoded, err := DecodeData(c.Params("*"))
