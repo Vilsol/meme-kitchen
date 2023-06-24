@@ -13,8 +13,6 @@ FROM node:18-alpine as frontend
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-
 RUN npm i -g pnpm
 
 COPY frontend/package.json package.json
@@ -23,6 +21,8 @@ COPY frontend/pnpm-lock.yaml pnpm-lock.yaml
 RUN pnpm i
 
 COPY frontend/ .
+
+ENV NODE_ENV=production
 
 RUN pnpm run build
 
