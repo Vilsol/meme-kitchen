@@ -13,6 +13,8 @@ FROM node:18-alpine as frontend
 
 WORKDIR /app
 
+ENV NODE_ENV=production
+
 RUN npm i -g pnpm
 
 COPY frontend/package.json package.json
