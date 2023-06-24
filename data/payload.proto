@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+option go_package = "github.com/Vilsol/memekitchen/data";
+
+message Payload {
+  uint32 version = 1;
+  uint64 template = 2;
+  repeated Text text = 3;
+}
+
+message Text {
+  optional uint32 template_text = 1;
+
+  optional string text = 2;
+
+  optional uint32 x = 3;
+  optional uint32 y = 4;
+
+  optional uint32 width = 5;
+  optional uint32 height = 6;
+
+  optional string font = 7;
+  optional uint32 size = 8;
+
+  optional bool unfilled = 9;
+  optional string fill_color = 10;
+
+  optional string stroke_color = 11;
+  optional uint32 stroke = 12;
+
+  optional HorizontalAlign horizontal_align = 13;
+  optional VerticalAlign vertical_align = 14;
+}
+
+message TemplateText {
+  optional string text = 1;
+
+  uint32 x = 2;
+  uint32 y = 3;
+
+  uint32 width = 4;
+  uint32 height = 5;
+
+  string font = 6;
+  uint32 size = 7;
+
+  bool unfilled = 8;
+  string fill_color = 9;
+
+  string stroke_color = 10;
+  uint32 stroke = 11;
+
+  HorizontalAlign horizontal_align = 12;
+  VerticalAlign vertical_align = 13;
+}
+
+enum HorizontalAlign {
+  CENTER = 0;
+  LEFT = 1;
+  RIGHT = 2;
+}
+
+enum VerticalAlign {
+  MIDDLE = 0;
+  TOP = 1;
+  BOTTOM = 2;
+}

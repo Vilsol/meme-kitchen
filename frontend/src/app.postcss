@@ -1,0 +1,26 @@
+html, body { @apply h-full; }
+body {
+  background-image:
+    radial-gradient(at 98% 98%, rgba(var(--color-error-500) / 0.33) 0px, transparent 50%),
+    radial-gradient(at 0% 98%, rgba(var(--color-secondary-500) / 0.33) 0px, transparent 50%);
+  background-attachment: fixed;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.dropper  {
+  @apply w-full max-h-64 p-32 rounded border-4 border-dashed border-neutral-300/50 text-white font-bold;
+}
+
+@font-face {
+  font-family: 'Impact';
+  src:  url('/fonts/Impact.ttf') format('truetype');
+}
+
+.input[type="color"] {
+  @apply w-64 h-full;
+  overflow: hidden;
+  border-style: none;
+  border-radius: var(--theme-rounded-base);
+}
