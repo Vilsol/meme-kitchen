@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"github.com/golang/freetype/truetype"
@@ -12,12 +11,15 @@ import (
 	"image/color"
 	"image/draw"
 	"io"
+	"math"
 	"memekitchen/data"
 	"memekitchen/ent"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+const RatioMeasureFontSize = 1000
 
 func init() {
 	dir, err := os.ReadDir("fonts")
@@ -44,7 +46,7 @@ func init() {
 	}
 }
 
-func RenderMeme(payload []*data.Text, template *ent.Template, file io.ReadCloser) ([]byte, error) {
+func RenderMeme(payload []*data.Text, template *ent.Template, file io.ReadCloser) (image.Image, error) {
 	templateImage, err := webp.Decode(file, nil)
 	if err != nil {
 		return nil, err
@@ -65,11 +67,13 @@ func RenderMeme(payload []*data.Text, template *ent.Template, file io.ReadCloser
 	gc.SetStrokeColor(color.RGBA{R: 0x44, G: 0x44, B: 0x44, A: 0xff})
 
 	for i, t := range template.Data {
+		if strings.TrimSpace(t.GetText()) == "" {
+			continue
+		}
+
 		text := t.GetText()
 		x := t.GetX()
 		y := t.GetY()
-		w := t.GetWidth()
-		h := t.GetHeight()
 		font := t.GetFont()
 		fontSize := t.GetSize()
 		fillColor := t.GetFillColor()
@@ -78,8 +82,8 @@ func RenderMeme(payload []*data.Text, template *ent.Template, file io.ReadCloser
 		unfilled := t.GetUnfilled()
 		horizontalAlign := t.GetHorizontalAlign()
 		verticalAlign := t.GetVerticalAlign()
-
-		t.GetWidth() // TODO Width
+		width := t.GetWidth()
+		height := t.GetHeight()
 
 		if len(payload)-1 >= i {
 			p := payload[i]
@@ -129,72 +133,155 @@ func RenderMeme(payload []*data.Text, template *ent.Template, file io.ReadCloser
 			}
 		}
 
+		gc.SetFontSize(float64(fontSize))
+		gc.SetFontData(draw2d.FontData{Name: font, Family: draw2d.FontFamilySans, Style: draw2d.FontStyleNormal})
+
+		//gc.SetStrokeColor(color.RGBA{
+		//	R: 0xff,
+		//	G: 0x00,
+		//	B: 0x00,
+		//	A: 0xff,
+		//})
+		//
 		//gc.BeginPath()
 		//gc.MoveTo(float64(x), float64(y))
-		//gc.LineTo(float64(x+w), float64(y+h))
+		//gc.LineTo(float64(x+width), float64(y+height))
 		//gc.Close()
 		//gc.FillStroke()
 		//
 		//gc.BeginPath()
-		//gc.MoveTo(float64(x+w), float64(y))
-		//gc.LineTo(float64(x), float64(y+h))
+		//gc.MoveTo(float64(x+width), float64(y))
+		//gc.LineTo(float64(x), float64(y+height))
 		//gc.Close()
 		//gc.FillStroke()
+		//
+		//gc.BeginPath()
+		//gc.MoveTo(float64(x), float64(y))
+		//gc.LineTo(float64(x+width), float64(y))
+		//gc.LineTo(float64(x+width), float64(y+height))
+		//gc.LineTo(float64(x), float64(y+height))
+		//gc.LineTo(float64(x), float64(y))
+		//gc.Close()
+		//gc.Stroke()
 
-		gc.SetFontSize(float64(fontSize))
-		gc.SetFontData(draw2d.FontData{Name: font, Family: draw2d.FontFamilySans, Style: draw2d.FontStyleNormal})
-
-		left, top, right, bottom := gc.GetStringBounds(text)
-
+		renderX := x
 		switch horizontalAlign {
-		case data.HorizontalAlign_CENTER:
-			x -= uint32((right - left) / 2)
-			x += w / 2
 		case data.HorizontalAlign_LEFT:
 			// Already left aligned
+		case data.HorizontalAlign_CENTER:
+			//renderX += width / 2
 		case data.HorizontalAlign_RIGHT:
-			x -= uint32(right - left)
-			x += w
+			//renderX += width
 		}
+
+		renderY := y
+		switch verticalAlign {
+		case data.VerticalAlign_TOP:
+			// Already top aligned
+		case data.VerticalAlign_MIDDLE:
+			renderY += height / 2
+		case data.VerticalAlign_BOTTOM:
+			renderY += height
+		}
+
+		lines := strings.Split(strings.TrimSpace(text), "\n")
+
+		widest := uint32(0)
+		widestID := 0
+		lineHeight := 1.35 * float64(fontSize)
+
+		for j, l := range lines {
+			left, _, right, _ := gc.GetStringBounds(l)
+			if widest < uint32(right-left) {
+				widest = uint32(right - left)
+				widestID = j
+			}
+		}
+
+		// Check width
+		if widest > width {
+			gc.SetFontSize(float64(RatioMeasureFontSize))
+			left, _, right, _ := gc.GetStringBounds(lines[widestID])
+			ratio := ((right - left) - float64(widest)) / (float64(RatioMeasureFontSize) - float64(fontSize))
+			fontSize = uint32(math.Min(float64(fontSize), math.Floor(float64(width)/ratio)))
+			gc.SetFontSize(float64(fontSize))
+			lineHeight = 1.35 * float64(fontSize)
+		}
+
+		// Check height
+		if float64(len(lines))*lineHeight > float64(height) {
+			lineHeight = float64(height) / float64(len(lines))
+			fontSize = uint32(math.Min(float64(fontSize), math.Floor(lineHeight/1.35)))
+			gc.SetFontSize(float64(fontSize))
+		}
+
+		totalHeight := float64(len(lines)-1) * lineHeight
 
 		switch verticalAlign {
-		case data.VerticalAlign_MIDDLE:
-			y += uint32((bottom - top) / 2)
-			y += h / 2
 		case data.VerticalAlign_TOP:
-			y += uint32(bottom - top)
+			// Do nothing
+		case data.VerticalAlign_MIDDLE:
+			renderY -= uint32(totalHeight / 2)
 		case data.VerticalAlign_BOTTOM:
-			y += h
+			renderY -= uint32(totalHeight)
 		}
 
-		if !unfilled {
+		if !unfilled && fillColor != "" {
 			c, err := ParseHexColor(fillColor)
 			if err != nil {
 				return nil, err
 			}
 
 			gc.SetFillColor(c)
-			gc.FillStringAt(text, float64(x), float64(y))
 		}
 
-		if stroke != 0 {
+		if stroke > 0 {
 			// TODO Stroke size
 			c, err := ParseHexColor(strokeColor)
 			if err != nil {
 				return nil, err
 			}
 
+			gc.SetLineWidth(float64(stroke))
 			gc.SetStrokeColor(c)
-			gc.StrokeStringAt(text, float64(x), float64(y))
+		}
+
+		for j, l := range lines {
+			localX := renderX
+			localY := renderY
+
+			left, top, right, bottom := gc.GetStringBounds(l)
+
+			switch horizontalAlign {
+			case data.HorizontalAlign_CENTER:
+				localX -= uint32((right - left) / 2)
+				localX += width / 2
+			case data.HorizontalAlign_LEFT:
+				// Already left aligned
+			case data.HorizontalAlign_RIGHT:
+				localX -= uint32(right - left)
+				localX += width
+			}
+
+			switch verticalAlign {
+			case data.VerticalAlign_MIDDLE:
+				localY += uint32((bottom - top) / 2)
+			case data.VerticalAlign_TOP:
+				localY += uint32(bottom - top)
+			case data.VerticalAlign_BOTTOM:
+			}
+
+			if !t.Unfilled {
+				gc.FillStringAt(l, float64(localX), float64(localY)+(float64(j)*lineHeight))
+			}
+
+			if t.Stroke != 0 {
+				gc.StrokeStringAt(l, float64(localX), float64(localY)+(float64(j)*lineHeight))
+			}
 		}
 	}
 
-	out := bytes.NewBuffer(make([]byte, 0))
-	if err := ConvertToWebPImage(dest, out, 95); err != nil {
-		return nil, err
-	}
-
-	return out.Bytes(), nil
+	return dest, nil
 }
 
 func ParseHexColor(s string) (c color.RGBA, err error) {

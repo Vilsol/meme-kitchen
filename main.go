@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/corona10/goimagehash"
@@ -28,6 +29,12 @@ type NewTemplate struct {
 	Data string `form:"data"`
 }
 
+var extensionConversion = map[string]func(source image.Image, output io.Writer, quality float32) error{
+	"webp": ConvertToWebPImage,
+	"jpeg": ConvertToJPEGImage,
+	"jpg":  ConvertToJPEGImage,
+}
+
 func main() {
 	ctx := config.InitializeConfig()
 	db := ConnectToDB()
@@ -46,10 +53,17 @@ func main() {
 
 	app.Use(cors.New())
 
-	app.Static("/", "./static")
+	app.Static("/", "./static", fiber.Static{
+		Index: "200.html",
+	})
 
-	app.Get("/img/*.webp", func(c *fiber.Ctx) error {
-		decoded, err := DecodeData(c.Params("*"))
+	app.Get("/img/:encoded.*", func(c *fiber.Ctx) error {
+		extension := c.Params("*")
+		if _, ok := extensionConversion[extension]; !ok {
+			return c.SendStatus(400)
+		}
+
+		decoded, err := DecodeData(c.Params("encoded"))
 		if err != nil {
 			// TODO Debug
 			log.Ctx(ctx).Err(err).Msg("failed decoding payload")
@@ -83,10 +97,19 @@ func main() {
 			return c.SendStatus(500)
 		}
 
+		out := bytes.NewBuffer(make([]byte, 0))
+		if err := extensionConversion[extension](meme, out, 95); err != nil {
+			log.Ctx(ctx).Err(err).Msg("failed encoding meme to image")
+
+			// TODO Debug
+			// TODO Error message
+			return c.SendStatus(500)
+		}
+
 		// Cache for a week
 		c.Response().Header.Set("Cache-Control", "public, max-age=604800")
 
-		return c.Type("webp").Send(meme)
+		return c.Type(extension).Send(out.Bytes())
 	})
 
 	app.Get("/api/templates", func(c *fiber.Ctx) error {

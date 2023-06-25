@@ -47,23 +47,18 @@ func DecodeData(str string) (*data.Payload, error) {
 		return out, nil
 	}
 
-	println(len(decoded), string(decoded))
-
 	reader, err := gzip.NewReader(bytes.NewReader(decoded))
 	if err != nil {
 		if errors.Is(err, gzip.ErrHeader) {
-			println("B")
 			return out, nil
 		}
 
-		println("C")
 		return nil, err
 	}
 	defer reader.Close()
 
 	marshaled, err := io.ReadAll(reader)
 	if err != nil {
-		println("D")
 		return nil, err
 	}
 

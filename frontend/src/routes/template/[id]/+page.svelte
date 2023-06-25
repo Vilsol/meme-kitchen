@@ -84,12 +84,12 @@
     }
 
     [...texts].reverse().forEach(t => {
-      const x = t.x || 0;
-      const y = t.y || 0;
-      const width = t.width || MIN_WIDTH;
-      const height = t.height || MIN_HEIGHT;
-
       if (t.text) {
+        const x = t.x || 0;
+        const y = t.y || 0;
+        const width = t.width || MIN_WIDTH;
+        const height = t.height || MIN_HEIGHT;
+
         let fontSize = (t.size || DEFAULT_SIZE);
 
         context.fillStyle = t.fill_color || DEFAULT_FILL;
@@ -276,7 +276,9 @@
     baked = payload;
 
     const encoded = Payload.encode(payload).finish();
-    const rawBase64 = btoa(String.fromCharCode(...encoded));
+    const rawBase64 = btoa(String.fromCharCode(...encoded))
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
 
     console.log(Payload.decode(new TextEncoder().encode(atob(rawBase64))));
 
@@ -347,6 +349,8 @@
         y: 0,
         width: MIN_WIDTH,
         height: MIN_HEIGHT,
+        fill_color: "#000000",
+        stroke_color: "#000000"
       })];
     }
   };
