@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/golang/freetype/truetype"
 	"github.com/llgcode/draw2d"
@@ -8,7 +9,6 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"io"
 	"math"
 	"memekitchen/data"
 	"memekitchen/ent"
@@ -44,8 +44,8 @@ func init() {
 	}
 }
 
-func RenderMeme(payload []*data.Text, template *ent.Template, file io.ReadCloser) (image.Image, error) {
-	templateImage, _, err := image.Decode(file)
+func RenderMeme(payload []*data.Text, template *ent.Template, templateBytes []byte) (image.Image, error) {
+	templateImage, _, err := image.Decode(bytes.NewReader(templateBytes))
 	if err != nil {
 		return nil, err
 	}

@@ -33,6 +33,8 @@ RUN apk add --no-cache libwebp
 
 COPY --from=backend /go/bin/api /api
 COPY --from=frontend /app/build/ static/
+
 COPY fonts/ fonts/
+COPY nsfw_model/ nsfw_model/
 
 ENTRYPOINT ["/api"]

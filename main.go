@@ -3,11 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/TwiN/go-away"
+	"github.com/allegro/bigcache/v3"
 	"github.com/corona10/goimagehash"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/etag"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/storage/redis/v2"
@@ -17,6 +20,7 @@ import (
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
+	"image/png"
 	_ "image/png"
 	"io"
 	"math/big"
@@ -25,8 +29,10 @@ import (
 	"memekitchen/ent"
 	"memekitchen/ent/schema"
 	template2 "memekitchen/ent/template"
+	"memekitchen/nsfw"
 	"memekitchen/storage"
 	"regexp"
+	"strconv"
 	"time"
 )
 
@@ -50,6 +56,8 @@ func ptr[T any](t T) *T {
 }
 
 func main() {
+	detector := nsfw.New("./nsfw_model")
+
 	ctx := config.InitializeConfig()
 	db := ConnectToDB()
 	s3 := storage.ConnecToS3(storage.Config{
@@ -67,6 +75,15 @@ func main() {
 		Database: viper.GetInt("database.redis.db"),
 	})
 
+	cfg := bigcache.DefaultConfig(time.Hour)
+	cfg.HardMaxCacheSize = 128
+	cfg.MaxEntrySize = 2 << 19 // 1 MB
+
+	templateCache, err := bigcache.New(ctx, cfg)
+	if err != nil {
+		panic(err)
+	}
+
 	app := fiber.New(fiber.Config{
 		ProxyHeader:       fiber.HeaderXForwardedFor,
 		StreamRequestBody: true,
@@ -80,7 +97,13 @@ func main() {
 		Index: "index.html",
 	})
 
-	app.Get("/img/:encoded.*", func(c *fiber.Ctx) error {
+	app.Use(NewLogger())
+
+	renderer := app.Group("")
+
+	renderer.Use(etag.New())
+
+	renderer.Get("/img/:encoded.*", func(c *fiber.Ctx) error {
 		extension := c.Params("*")
 		if _, ok := extensionConversion[extension]; !ok {
 			return c.SendStatus(400)
@@ -116,16 +139,40 @@ func main() {
 			return c.SendStatus(404)
 		}
 
-		templateFile, _, err := s3.Get(fmt.Sprintf("templates/images/%d.webp", template.ID))
+		templateBytes, err := templateCache.Get(strconv.Itoa(template.ID))
 		if err != nil {
-			log.Ctx(ctx).Err(err).Msg("failed fetching template")
+			if errors.Is(err, bigcache.ErrEntryNotFound) {
+				templateFile, _, err := s3.Get(fmt.Sprintf("templates/images/%d.webp", template.ID))
+				if err != nil {
+					log.Ctx(ctx).Err(err).Msg("failed fetching template")
 
-			// TODO Debug
-			// TODO Error message
-			return c.SendStatus(500)
+					// TODO Debug
+					// TODO Error message
+					return c.SendStatus(500)
+				}
+
+				templateBytes, err = io.ReadAll(templateFile)
+				if err != nil {
+					log.Ctx(ctx).Err(err).Msg("failed reading template")
+
+					// TODO Debug
+					// TODO Error message
+					return c.SendStatus(500)
+				}
+
+				if err := templateCache.Set(strconv.Itoa(template.ID), templateBytes); err != nil {
+					log.Ctx(ctx).Err(err).Msg("failed putting template in cache")
+				}
+			} else {
+				log.Ctx(ctx).Err(err).Msg("failed reading cache")
+
+				// TODO Debug
+				// TODO Error message
+				return c.SendStatus(500)
+			}
 		}
 
-		meme, err := RenderMeme(decoded.Text, template, templateFile)
+		meme, err := RenderMeme(decoded.Text, template, templateBytes)
 		if err != nil {
 			log.Ctx(ctx).Err(err).Msg("failed rendering meme")
 
@@ -264,6 +311,21 @@ func main() {
 		if err != nil {
 			// TODO Error message
 			return c.SendStatus(400)
+		}
+
+		imageBuffer := bytes.NewBuffer(make([]byte, 0))
+		if err := png.Encode(imageBuffer, img); err != nil {
+			panic(err)
+		}
+
+		labels, err := detector.Labels(imageBuffer.Bytes())
+		if err != nil {
+			panic(err)
+		}
+
+		if !labels.IsSafe() {
+			// TODO Error message
+			return c.SendStatus(500)
 		}
 
 		avgDist, err := goimagehash.ExtAverageHash(img, 8, 8)
