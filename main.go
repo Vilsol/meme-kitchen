@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/TwiN/go-away"
 	"github.com/corona10/goimagehash"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
+	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/storage/redis/v2"
 	_ "github.com/kolesa-team/go-webp/webp"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
@@ -22,6 +26,8 @@ import (
 	"memekitchen/ent/schema"
 	template2 "memekitchen/ent/template"
 	"memekitchen/storage"
+	"regexp"
+	"time"
 )
 
 type NewTemplate struct {
@@ -29,10 +35,18 @@ type NewTemplate struct {
 	Data string `form:"data"`
 }
 
-var extensionConversion = map[string]func(source image.Image, output io.Writer, quality float32) error{
+var extensionConversion = map[string]func(source image.Image, output io.Writer, quality float32, data string) error{
 	"webp": ConvertToWebPImage,
 	"jpeg": ConvertToJPEGImage,
 	"jpg":  ConvertToJPEGImage,
+}
+
+var urlRegex = regexp.MustCompile(`[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)`)
+
+const maxTexts = 20
+
+func ptr[T any](t T) *T {
+	return &t
 }
 
 func main() {
@@ -46,15 +60,24 @@ func main() {
 		Endpoint: viper.GetString("storage.endpoint"),
 		Region:   viper.GetString("storage.region"),
 	})
+	fiberStore := redis.New(redis.Config{
+		Host:     viper.GetString("database.redis.host"),
+		Port:     viper.GetInt("database.redis.port"),
+		Password: viper.GetString("database.redis.pass"),
+		Database: viper.GetInt("database.redis.db"),
+	})
 
 	app := fiber.New(fiber.Config{
+		ProxyHeader:       fiber.HeaderXForwardedFor,
 		StreamRequestBody: true,
 	})
+
+	app.Use(recover.New())
 
 	app.Use(cors.New())
 
 	app.Static("/", "./static", fiber.Static{
-		Index: "200.html",
+		Index: "index.html",
 	})
 
 	app.Get("/img/:encoded.*", func(c *fiber.Ctx) error {
@@ -68,6 +91,20 @@ func main() {
 			// TODO Debug
 			log.Ctx(ctx).Err(err).Msg("failed decoding payload")
 			return c.SendStatus(400)
+		}
+
+		// Verify max texts
+		if len(decoded.Text) > maxTexts {
+			// TODO Show an error image
+			return c.SendStatus(400)
+		}
+
+		// Verify no URLs provided
+		for _, text := range decoded.Text {
+			if urlRegex.MatchString(text.GetText()) {
+				// TODO Show an error image
+				return c.SendStatus(400)
+			}
 		}
 
 		// TODO Verify provided fonts exist
@@ -98,7 +135,7 @@ func main() {
 		}
 
 		out := bytes.NewBuffer(make([]byte, 0))
-		if err := extensionConversion[extension](meme, out, 95); err != nil {
+		if err := extensionConversion[extension](meme, out, 95, c.Params("encoded")); err != nil {
 			log.Ctx(ctx).Err(err).Msg("failed encoding meme to image")
 
 			// TODO Debug
@@ -176,7 +213,15 @@ func main() {
 		return c.Type("webp").SendStream(templateFile, int(size))
 	})
 
-	app.Post("/api/templates", func(c *fiber.Ctx) error {
+	templateGroup := app.Group("")
+
+	templateGroup.Use(limiter.New(limiter.Config{
+		Max:        5,
+		Expiration: time.Minute,
+		Storage:    fiberStore,
+	}))
+
+	templateGroup.Post("/api/templates", func(c *fiber.Ctx) error {
 		newTemplate := &NewTemplate{}
 		if err := c.BodyParser(newTemplate); err != nil {
 			// TODO Error message
@@ -189,9 +234,19 @@ func main() {
 			return c.SendStatus(400)
 		}
 
-		// TODO Verify all params set for each text
-		// TODO Verify provided fonts exist
-		// TODO Verify colors are hex
+		for _, text := range textData {
+			// Verify no URLs provided
+			if urlRegex.MatchString(text.GetText()) {
+				// TODO Error message
+				return c.SendStatus(400)
+			}
+
+			// Verify no profanities in template
+			if goaway.IsProfane(text.GetText()) {
+				// TODO Error message
+				return c.SendStatus(400)
+			}
+		}
 
 		imgMeta, err := c.FormFile("image")
 		if err != nil {
@@ -253,12 +308,40 @@ func main() {
 			return c.SendStatus(500)
 		}
 
+		rewritten := make([]*data.Text, len(textData))
+		for i, d := range textData {
+			b := d
+			rewritten[i] = &data.Text{
+				TemplateText:    ptr(uint32(i)),
+				Text:            b.Text,
+				X:               &b.X,
+				Y:               &b.Y,
+				Width:           &b.Width,
+				Height:          &b.Height,
+				Font:            &b.Font,
+				Size:            &b.Size,
+				Unfilled:        &b.Unfilled,
+				FillColor:       &b.FillColor,
+				StrokeColor:     &b.StrokeColor,
+				Stroke:          &b.Stroke,
+				HorizontalAlign: &b.HorizontalAlign,
+				VerticalAlign:   &b.VerticalAlign,
+			}
+		}
+
+		_, err = RenderMemeImage(rewritten, template, img)
+		if err != nil {
+			_ = tx.Rollback()
+			// TODO Error message
+			return c.SendStatus(400)
+		}
+
 		reader, writer := io.Pipe()
 
 		var convertErr error
 		go func() {
 			defer writer.Close()
-			convertErr = ConvertToWebPImage(img, writer, 100)
+			convertErr = ConvertToWebPImage(img, writer, 100, "")
 		}()
 
 		if _, err := s3.Put(c.Context(), fmt.Sprintf("templates/images/%d.webp", template.ID), reader); err != nil {
@@ -281,6 +364,10 @@ func main() {
 		}
 
 		return c.JSON(template)
+	})
+
+	app.Get("*", func(c *fiber.Ctx) error {
+		return c.SendFile("static/200.html")
 	})
 
 	if err := app.Listen(":3000"); err != nil {

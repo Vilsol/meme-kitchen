@@ -1,10 +1,8 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"github.com/golang/freetype/truetype"
-	"github.com/kolesa-team/go-webp/webp"
 	"github.com/llgcode/draw2d"
 	"github.com/llgcode/draw2d/draw2dimg"
 	"image"
@@ -47,18 +45,16 @@ func init() {
 }
 
 func RenderMeme(payload []*data.Text, template *ent.Template, file io.ReadCloser) (image.Image, error) {
-	templateImage, err := webp.Decode(file, nil)
+	templateImage, _, err := image.Decode(file)
 	if err != nil {
 		return nil, err
 	}
+	return RenderMemeImage(payload, template, templateImage)
+}
 
-	src, ok := templateImage.(*image.NRGBA)
-	if !ok {
-		return nil, errors.New("invalid template image")
-	}
-
-	dest := image.NewRGBA(src.Rect)
-	draw.Draw(dest, dest.Bounds(), src, src.Bounds().Min, draw.Src)
+func RenderMemeImage(payload []*data.Text, template *ent.Template, templateImage image.Image) (image.Image, error) {
+	dest := image.NewRGBA(templateImage.Bounds())
+	draw.Draw(dest, dest.Bounds(), templateImage, templateImage.Bounds().Min, draw.Src)
 
 	// Initialize the graphic context on an RGBA image
 	gc := draw2dimg.NewGraphicContext(dest)

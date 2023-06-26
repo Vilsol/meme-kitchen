@@ -27,6 +27,7 @@
     'Impact',
     'Times New Roman',
   ];
+  const URL_REGEX = new RegExp(/[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)/);
 
   const templateFile = writable<HTMLImageElement>();
   export let data: PageData;
@@ -128,7 +129,7 @@
             break;
         }
 
-        const lines = t.text.trim().split('\n');
+        const lines = t.text.trim().split('\n').map(l => l.match(URL_REGEX) ? "Links are not allowed" : l);
 
         let widest = 0;
         let widestID = 0;
@@ -334,6 +335,10 @@
   };
 
   const addText = () => {
+    if (texts.length >= 20) {
+      return;
+    }
+
     const tempIndex = templateTexts.findIndex((_, i) => !texts.find(c => c.template_text == i));
 
     if (tempIndex >= 0) {
@@ -548,7 +553,7 @@
     </div>
     <div class="w-full h-full flex flex-col gap-3">
       <div>
-        <button type="button" class="btn variant-ghost-success w-full" on:click={() => addText()}>+</button>
+        <button type="button" class="btn variant-ghost-success w-full" disabled={texts.length >= 20} on:click={() => addText()}>+</button>
       </div>
       {#each texts as text, i}
         <div class="flex flex-col">

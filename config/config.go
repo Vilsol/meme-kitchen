@@ -48,6 +48,11 @@ func initializeDefaults() {
 	viper.SetDefault("production", true)
 	viper.SetDefault("profiler", false)
 
+	viper.SetDefault("database.redis.host", "localhost")
+	viper.SetDefault("database.redis.port", 6379)
+	viper.SetDefault("database.redis.pass", "")
+	viper.SetDefault("database.redis.db", 1)
+
 	viper.SetDefault("database.postgres.host", "localhost")
 	viper.SetDefault("database.postgres.port", 5432)
 	viper.SetDefault("database.postgres.user", "postgres")
