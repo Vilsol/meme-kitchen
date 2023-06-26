@@ -1,12 +1,12 @@
-FROM golang:alpine3.18 as backend
+FROM nixos/nix as backend
 
-RUN apk add --no-cache libwebp-dev gcc g++
+RUN nix-channel --update
 
 WORKDIR /app
 
 COPY . .
 
-RUN CGO_ENABLED=1 go build -v -a -installsuffix cgo -o /go/bin/api .
+RUN nix-shell --command "CGO_ENABLED=1 go build -v -a -installsuffix cgo -o /go/bin/api ."
 
 
 FROM node:18-alpine as frontend
@@ -27,9 +27,9 @@ ENV NODE_ENV=production
 RUN pnpm run build
 
 
-FROM alpine
+FROM nixos/nix
 
-RUN apk add --no-cache libwebp
+RUN nix-channel --update
 
 COPY --from=backend /go/bin/api /api
 COPY --from=frontend /app/build/ static/
@@ -37,4 +37,8 @@ COPY --from=frontend /app/build/ static/
 COPY fonts/ fonts/
 COPY nsfw_model/ nsfw_model/
 
-ENTRYPOINT ["/api"]
+COPY shell.nix /shell.nix
+
+RUN nix-shell --command "ldd /api"
+
+CMD ["nix-shell", "--command", "/api"]

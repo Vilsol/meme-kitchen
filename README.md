@@ -18,3 +18,4 @@ Todo:
 * [x] Profanity filter for templates
 * [x] Request logging
 * [x] Etag cache
+* [ ] Watermarking
